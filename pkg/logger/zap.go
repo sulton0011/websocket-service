@@ -2,14 +2,14 @@ package logger
 
 import (
 	"os"
-	"time"
 
+	"github.com/streamingfast/logging"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
-func newZapLogger(level, timeFormat string) *zap.Logger {
-
+func newZapLogger(namespace, level string) *zap.Logger {
 	globalLevel := parseLevel(level)
 
 	highPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
@@ -20,31 +20,27 @@ func newZapLogger(level, timeFormat string) *zap.Logger {
 		return lvl >= globalLevel && lvl < zapcore.ErrorLevel
 	})
 
-	consoleInfos := zapcore.Lock(os.Stdout)
-	consoleErrors := zapcore.Lock(os.Stderr)
+	logStdErrorWriter := zapcore.Lock(os.Stderr)
+	logStdInfoWriter := zapcore.Lock(os.Stdout)
 
-	// Configure console output.
-	encoderCfg := zap.NewProductionEncoderConfig()
-	if len(timeFormat) > 0 {
-		customTimeFormat = timeFormat
-		encoderCfg.EncodeTime = customTimeEncoder
-	} else {
-		encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
-	}
-	consoleEncoder := zapcore.NewJSONEncoder(encoderCfg)
+	isTTY := terminal.IsTerminal(int(os.Stderr.Fd()))
 
 	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, consoleErrors, highPriority),
-		zapcore.NewCore(consoleEncoder, consoleInfos, lowPriority),
+		zapcore.NewCore(logging.NewEncoder(4, isTTY), logStdErrorWriter, highPriority),
+		zapcore.NewCore(logging.NewEncoder(4, isTTY), logStdInfoWriter, lowPriority),
 	)
 
-	logger := zap.New(core)
+	logger := zap.New(
+		core,
+		zap.AddCaller(), zap.AddCallerSkip(1),
+		// zap.AddStacktrace(globalLevel),
+	)
+
+	logger = logger.Named(namespace)
+
+	zap.RedirectStdLog(logger)
 
 	return logger
-}
-
-func customTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-	enc.AppendString(t.Format(customTimeFormat))
 }
 
 func parseLevel(level string) zapcore.Level {
@@ -57,22 +53,13 @@ func parseLevel(level string) zapcore.Level {
 		return zapcore.WarnLevel
 	case LevelError:
 		return zapcore.ErrorLevel
+	case LevelDPanic:
+		return zapcore.DPanicLevel
+	case LevelPanic:
+		return zapcore.PanicLevel
+	case LevelFatal:
+		return zapcore.FatalLevel
 	default:
 		return zapcore.InfoLevel
-	}
-}
-
-// GetZapLogger extracts zap struct from given logger interface
-func GetZapLogger(l Logger) *zap.Logger {
-	if l == nil {
-		return newZapLogger(LevelInfo, time.RFC3339)
-	}
-
-	switch v := l.(type) {
-	case *loggerImpl:
-		return v.zap
-	default:
-		l.Info("logger.WithFields: invalid logger type, creating a new zap logger", String("level", LevelInfo), String("time_format", time.RFC3339))
-		return newZapLogger(LevelInfo, time.RFC3339)
 	}
 }
