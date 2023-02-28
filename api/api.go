@@ -15,6 +15,7 @@ func SetUpRouter(h *handler.Handler, cfg config.Config) (r *gin.Engine) {
 	r.Use(customCORSMiddleware())
 
 	r.GET("/ws", h.HasAccess, h.Ws)
+	r.GET("/ws-one", h.HasAccess, h.WsOne)
 	r.GET("/", h.GetToken)
 
 	return

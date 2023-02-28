@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"websocket-service/config"
+	"websocket-service/pkg/errors"
 	"websocket-service/pkg/helper"
 	"websocket-service/pkg/logger"
 	"websocket-service/pkg/security"
@@ -31,20 +32,21 @@ type Client struct {
 	log    logger.LoggerI
 	ctx    context.Context
 	user   *security.TokenInfo
-	closed bool
+	// closed bool
 }
 
-func NewSubscription(ws *websocket.Conn, log logger.LoggerI, ctx context.Context, user *security.TokenInfo, room string) Subscription {
-	return Subscription{
+func NewSubscription(ws *websocket.Conn, log logger.LoggerI, ctx context.Context, user *security.TokenInfo, room string) *Subscription {
+	return &Subscription{
 		conn: &Client{
 			ws:     ws,
 			log:    log,
 			ctx:    ctx,
 			user:   user,
-			closed: false,
+			// closed: false,
 		},
 		room:   room,
 		closed: false,
+		err:    *errors.NewError(log, "Subscription", ""),
 	}
 }
 
@@ -52,7 +54,7 @@ func NewSubscription(ws *websocket.Conn, log logger.LoggerI, ctx context.Context
 func (s *Subscription) readPump(h *Hub) {
 	c := s.conn
 	defer func() {
-		s.Close(h)
+		s.CloseHub(h)
 	}()
 	c.ws.SetReadLimit(config.MaxMessageSize)
 
@@ -84,15 +86,21 @@ func (c *Client) write(payload any) error {
 	return c.ws.WriteJSON(payload)
 }
 
-func (s *Subscription) Close(h *Hub) {
+func (s *Subscription) CloseHub(h *Hub) {
 	s.closed = true
-	s.conn.closed = true
+	// s.conn.closed = true
 	s.conn.ws.Close()
-	delete(h.rooms[s.room], s.conn)
-	h.unregister <- *s
+	delete(h.rooms[s.room], s)
+	h.unregister <- s
 }
 
-// serveWs handles websocket requests from the peer.
+func (s *Subscription) CloseOne() {
+	s.closed = true
+	// s.conn.closed = true
+	s.conn.ws.Close()
+}
+
+// serveWs handles websocket requests from the rooms.
 func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	req := helper.GetValueContext(ctx)
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -105,4 +113,19 @@ func (h *Hub) ServeWs(w http.ResponseWriter, r *http.Request, ctx context.Contex
 
 	h.register <- s
 	go s.readPump(h)
+}
+
+// ServeWsOne allows one user to listen to websocket messages.
+func (h *Hub) ServeWsOne(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+	req := helper.GetValueContext(ctx)
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.err.Wrap(&err, "ServeWsOne", req)
+		return
+	}
+
+	s := NewSubscription(ws, h.log, ctx, req, ctx.Value("room").(string))
+
+	go s.readPump(h)
+	s.SendOne()
 }

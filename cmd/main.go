@@ -41,7 +41,7 @@ func main() {
 	r := api.SetUpRouter(h, cfg)
 
 	go hub.Run()
-	go hub.Read()
+	go hub.SendRoom()
 
 	log.Info("HTTP: Server being started...", logger.String("port", cfg.HTTPPort))
 

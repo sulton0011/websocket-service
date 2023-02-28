@@ -8,6 +8,31 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// broadcast to everyone in the room
+func (h *Hub) SendRoom() {
+	for {
+		select {
+		case <-h.newRegister:
+			for room := range h.rooms {
+
+				if len(h.rooms[room]) > 1 {
+					continue
+				}
+				switch room {
+				case "status":
+					h.Status(room)
+				case "ping":
+					h.Ping(room)
+				case "message":
+					h.Message(room)
+				default:
+					h.NotFount(room)
+				}
+			}
+		}
+	}
+}
+
 func (h *Hub) Status(room string) (err error) {
 	defer errors.WrapCheck(&err, "h.Status")
 	for {
@@ -23,7 +48,7 @@ func (h *Hub) Status(room string) (err error) {
 			// h.log.Error("Error sending status message: ", log)
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(4 * time.Second)
 	}
 	return err
 }
@@ -33,6 +58,7 @@ func (h *Hub) Ping(room string) (err error) {
 
 	var count int
 	for {
+		fmt.Println(h.rooms[room])
 		if len(h.rooms[room]) == 0 {
 			return nil
 		}
@@ -44,7 +70,7 @@ func (h *Hub) Ping(room string) (err error) {
 		if err != nil {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(4 * time.Second)
 		count++
 	}
 	return err
@@ -79,9 +105,13 @@ func (h *Hub) NotFount(room string) (err error) {
 	}
 	err = h.Send(Message{
 		Code:   websocket.CloseInvalidFramePayloadData,
-		Status: "notfount",
-		Data:   "notfount",
+		Status: "not fount",
+		Data:   "no such room available",
 	}, room)
+
+	for s := range h.rooms[room] {
+		s.CloseHub(h)
+	}
 
 	time.Sleep(1 * time.Second)
 	return err
